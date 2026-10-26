@@ -139,4 +139,35 @@ class EconomicsTests(unittest.TestCase):
         with self.assertRaises(ValueError): app.parse_imf(raw,('USA',))
         self.assertEqual(app.parse_imf(raw.iloc[:1],('USA',)).iloc[0,0],100)
 
+    def test_readable_precision_preserves_small_quotes(self):
+        for value,expected in [(1234.56,'1,235'),(950.21,'950'),(1.34,'1.34'),(.75,'0.75'),(.0151,'0.015'),(.00105495,'0.0011'),(.000021,'0.000021')]:
+            self.assertEqual(app.number(value,app.display_decimals([value],'nominal')),expected)
+        self.assertEqual(app.display_decimals([95,100,105]),1)
+        self.assertEqual(app.display_decimals([100.01,100.03,100.09]),2)
+        self.assertEqual(app.display_decimals([.35,.4,.45]),2)
+        self.assertNotEqual(app.number(.00001,app.display_decimals([.00001])), '0.00')
+        f,mean=app.normalize(self.m)
+        before=f.copy(deep=True)
+        fig=app.chart(f,'Both','USD per GBP',mean)
+        self.assertTrue(fig.layout.yaxis.tickformat.startswith(','))
+        self.assertTrue(fig.layout.yaxis2.tickformat.startswith(','))
+        self.assertIn(',.',fig.data[1].hovertemplate)
+        pd.testing.assert_frame_equal(f,before)
+
+    def test_custom_period_anchor_and_missing_inputs(self):
+        f,_,_=app.fred_pair('G163','USA')
+        one=app.custom_benchmark(f,'1999-01','1999-01',as_of='2026-09-01')
+        self.assertTrue(one['available'])
+        self.assertEqual(one['months'],1)
+        self.assertAlmostEqual(one['value'],.4026143434667008)
+        self.assertEqual(one['low'],one['high'])
+        for method in ['Median','Mean']:
+            b=app.custom_benchmark(f,'2015-01','2019-12',method,as_of='2026-09-01')
+            self.assertEqual(b['months'],60)
+            expected=getattr(f.loc['2015':'2019','rer'],method.lower())()
+            self.assertAlmostEqual(b['value'],expected)
+        for start,end,asof,daily in [('2025-09','2025-11','2026-09',False),('2000-02','2000-01','2026-09',False),('2026-08','2026-09','2026-08',False),('1999-01','1999-01','1999-01-15',True)]:
+            self.assertFalse(app.custom_benchmark(f,start,end,as_of=asof,daily=daily)['available'])
+        self.assertTrue(app.custom_benchmark(f,'1999-01','1999-01',as_of='1999-01-31',daily=True)['available'])
+
 if __name__=='__main__': unittest.main()

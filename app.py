@@ -378,34 +378,80 @@ def add_benchmark(frame: pd.DataFrame,b: dict,mean: float) -> pd.DataFrame:
     return result
 
 
+def display_decimals(values,kind='rer') -> int:
+    """Choose display precision only; calculations and exports retain source precision."""
+    a=np.asarray(values,dtype=float).ravel()
+    a=a[np.isfinite(a)]
+    nonzero=np.abs(a[a!=0])
+    if not len(nonzero): return 1 if kind=='rer' else 2
+    magnitude=float(np.median(nonzero))
+    if kind=='nominal':
+        # Large quotes (e.g. CLP per USD) need whole units; ordinary FX needs cents.
+        return 0 if magnitude>=100 else max(2,1-math.floor(math.log10(magnitude)))
+    decimals=1
+    if len(a)>1 and 0<float(np.quantile(a,.9)-np.quantile(a,.1))<1:
+        decimals=2
+    # Small raw RER levels must not disappear into zero after rounding.
+    return max(decimals,1-math.floor(math.log10(magnitude)))
+
+
+def number(value,decimals=1,sign=False) -> str:
+    if not np.isfinite(value): return 'Unavailable'
+    return format(value,('+' if sign else '')+f',.{decimals}f')
+
+
+def custom_benchmark(frame,start,end,method='Median',as_of=None,daily=False) -> dict:
+    start=pd.Timestamp(start).to_period('M').to_timestamp()
+    end=pd.Timestamp(end).to_period('M').to_timestamp()
+    if start>end:
+        return dict(available=False,reason='Reference start must be on or before reference end.')
+    completed=end+pd.offsets.MonthEnd(0) if daily else end
+    if as_of is not None and completed>pd.Timestamp(as_of):
+        return dict(available=False,reason='The reference period ends after the displayed endpoint. Choose an earlier reference or extend the chart dates.')
+    months=pd.date_range(start,end,freq='MS')
+    values=frame.rer.reindex(months)
+    missing=values.isna() | ~np.isfinite(values) | (values<=0)
+    if missing.any():
+        dates=', '.join(d.strftime('%b %Y') for d in months[missing][:3])
+        return dict(available=False,reason=f'Joint CPI/FX data are missing for {int(missing.sum()):,} reference month(s): {dates}. Choose a complete period; missing months are not filled or silently omitted.')
+    value=float(values.median() if method=='Median' else values.mean())
+    label=start.strftime('%b %Y') if start==end else f'{start:%b %Y}–{end:%b %Y}'
+    return dict(available=True,value=value,start=str(start.date()),end=str(end.date()),
+                label=label+' · custom reference',method=method,low=float(values.quantile(.25)),
+                high=float(values.quantile(.75)),custom=True,months=len(months),
+                reason='Your selected period is a valuation assumption, not an automatically screened equilibrium estimate. Insights are conditional on this reference being economically appropriate.')
+
+
 def chart(frame: pd.DataFrame,mode: str,quote: str,mean: float,b=None,band=True,raw=False) -> go.Figure:
     fig=make_subplots(specs=[[{'secondary_y':True}]])
     factor=1 if raw else 100/mean if mean>0 else np.nan
     real_name='Raw RER' if raw else 'Real index'
     real_values=frame.rer if raw else frame.real_index
+    real_format=f',.{display_decimals(real_values)}f'
+    nominal_format=f',.{display_decimals(frame.nominal,"nominal")}f'
     if mode in ['Real','Both']:
         fig.add_trace(go.Scatter(x=frame.index,y=real_values,name=real_name,mode='lines+markers' if real_values.count()<=2 else 'lines',
-              line=dict(color=TEAL,width=2.6),connectgaps=False,hovertemplate='%{y:.4f}<extra>'+real_name+'</extra>'),secondary_y=False)
+              line=dict(color=TEAL,width=2.6),connectgaps=False,hovertemplate='%{y:'+real_format+'}<extra>'+real_name+'</extra>'),secondary_y=False)
     if mode in ['Nominal','Both']:
         fig.add_trace(go.Scatter(x=frame.index,y=frame.nominal,name='Nominal rate',mode='lines+markers' if frame.nominal.count()<=2 else 'lines',
-              line=dict(color=ORANGE,width=2.2),connectgaps=False,hovertemplate='%{y:.6g}<extra>'+quote+'</extra>'),secondary_y=mode=='Both')
+              line=dict(color=ORANGE,width=2.2),connectgaps=False,hovertemplate='%{y:'+nominal_format+'}<extra>'+quote+'</extra>'),secondary_y=mode=='Both')
     if b and b.get('available'):
         if mode in ['Real','Both']:
             fig.add_trace(go.Scatter(x=[frame.index[0],frame.index[-1]],y=[factor*b['value']]*2,
-                  name='RER reference',line=dict(color=PURPLE,dash='dash'),hovertemplate='%{y:.2f}<extra>Fixed RER reference</extra>'),secondary_y=False)
+                  name='RER reference',line=dict(color=PURPLE,dash='dash'),hovertemplate='%{y:'+real_format+'}<extra>Fixed RER reference</extra>'),secondary_y=False)
             if band and b['low']<b['high']:
                 fig.add_hrect(y0=factor*b['low'],y1=factor*b['high'],fillcolor=PURPLE,opacity=.09,line_width=0,secondary_y=False)
         if mode in ['Nominal','Both']:
             fig.add_trace(go.Scatter(x=frame.index,y=frame.implied_nominal,name='PPP-implied rate',
-                  line=dict(color=PURPLE,dash='dot',width=2),hovertemplate='%{y:.4f}<extra>PPP-implied '+quote+'</extra>'),secondary_y=mode=='Both')
+                  line=dict(color=PURPLE,dash='dot',width=2),hovertemplate='%{y:'+nominal_format+'}<extra>PPP-implied '+quote+'</extra>'),secondary_y=mode=='Both')
     fig.update_layout(height=320,margin=dict(l=10,r=10,t=12,b=5),paper_bgcolor='white',plot_bgcolor='white',
         font=dict(family='Arial, sans-serif',color='#526370',size=12),hovermode='x unified',
         legend=dict(orientation='h',y=-.18,x=0,font=dict(size=11)),
-        hoverlabel=dict(bgcolor='white',font_size=12),dragmode='zoom')
+        hoverlabel=dict(bgcolor='white',font_size=12),dragmode='zoom',separators='.,')
     days=(frame.index.max()-frame.index.min()).days
     fig.update_xaxes(showgrid=False,showline=True,linecolor='#e8edef',tickformat='%d %b' if days<120 else '%b %Y' if days<730 else '%Y',nticks=6)
-    fig.update_yaxes(title_text=real_name if mode!='Nominal' else quote,gridcolor='#edf1f2',zeroline=False,tickformat='.0f' if mode!='Nominal' and not raw else '.4~g',secondary_y=False)
-    fig.update_yaxes(title_text=quote if mode=='Both' else None,showgrid=False,visible=mode=='Both',zeroline=False,tickformat='.4~g',secondary_y=True)
+    fig.update_yaxes(title_text=real_name if mode!='Nominal' else quote,gridcolor='#edf1f2',zeroline=False,tickformat=real_format if mode!='Nominal' else nominal_format,secondary_y=False)
+    fig.update_yaxes(title_text=quote if mode=='Both' else None,showgrid=False,visible=mode=='Both',zeroline=False,tickformat=nominal_format,secondary_y=True)
     return fig
 
 
@@ -423,7 +469,7 @@ def valuation(frame: pd.DataFrame,b: dict,tolerance: float) -> dict:
     low=min(b['low'],b['value']*(1-tolerance/100))
     high=max(b['high'],b['value']*(1+tolerance/100))
     status='Possibly undervalued' if last.rer<low else 'Possibly overvalued' if last.rer>high else 'Near reference range'
-    return dict(status=status,detail=f'{gap:+.1f}% versus the historical RER reference',actionable=True,
+    return dict(status=status,detail=f'{gap:+,.1f}% versus the historical RER reference',actionable=True,
                 gap=gap,implied=b['value']*last.cpi2/last.cpi1,adjustment=100*(b['value']/last.rer-1),
                 when=when,spot=last.nominal,low=low,high=high)
 
@@ -514,6 +560,8 @@ def main():
       .st-key-country_controls [data-testid="stColumn"]{width:100%!important;min-width:0!important}
     }
     @media(max-width:1000px){
+      .st-key-benchmark_dates [data-testid="stHorizontalBlock"]{display:grid!important;grid-template-columns:1fr 1fr;gap:10px!important}
+      .st-key-benchmark_dates [data-testid="stColumn"]{width:100%!important;min-width:0!important}
       .st-key-benchmark_panel [data-testid="stHorizontalBlock"]{display:grid!important;grid-template-columns:1fr;gap:10px!important}
       .st-key-benchmark_panel [data-testid="stColumn"]{width:100%!important;min-width:0!important}
       .st-key-date_controls > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"]{display:grid!important;grid-template-columns:1fr 1fr;gap:10px!important}
@@ -523,6 +571,9 @@ def main():
     @media(max-width:760px){
       .block-container{padding:3rem 1rem 1rem}.stPlotlyChart{min-width:0}h1{font-size:1.4rem!important}
       .subline,.st-key-summary_metrics{display:none}
+      .st-key-reference_controls [data-testid="stHorizontalBlock"]{display:grid!important;grid-template-columns:1.3fr 1fr;gap:10px!important}
+      .st-key-reference_controls [data-testid="stColumn"]{width:100%!important;min-width:0!important}
+      .st-key-reference_controls [data-testid="stColumn"]:nth-child(3){grid-column:1/-1}
       .st-key-country_controls [data-testid="stHorizontalBlock"]{display:grid!important;grid-template-columns:1fr 1fr;gap:10px!important}
       .st-key-country_controls [data-testid="stColumn"]{width:100%!important;min-width:0!important}
       .st-key-date_controls [data-testid="stHorizontalBlock"]{display:flex!important;flex-direction:row!important;gap:6px!important}
@@ -593,10 +644,12 @@ def main():
     display=annual_view(sample) if frequency=='Annual' else sample
     real=sample.dropna(subset=['rer']); nominal=sample.nominal.dropna()
     latest_real=real.iloc[-1] if not real.empty else None
+    nominal_decimals=display_decimals(sample.nominal,'nominal')
+    real_decimals=display_decimals(sample.rer if raw_scale else sample.real_index)
     metrics=st.container(key='summary_metrics').columns(4)
-    metrics[0].metric(f'Latest {quote}',f'{nominal.iloc[-1]:,.6g}')
-    metrics[1].metric('Latest raw RER' if raw_scale else 'Latest real index',(f'{latest_real.rer:,.6g}' if raw_scale else f'{latest_real.real_index:,.1f}') if latest_real is not None else 'Unavailable')
-    metrics[2].metric('Nominal change in selection',f'{100*(nominal.iloc[-1]/nominal.iloc[0]-1):+.1f}%')
+    metrics[0].metric(f'Latest {quote}',number(nominal.iloc[-1],nominal_decimals))
+    metrics[1].metric('Latest raw RER' if raw_scale else 'Latest real index',number(latest_real.rer if raw_scale else latest_real.real_index,real_decimals) if latest_real is not None else 'Unavailable')
+    metrics[2].metric('Nominal change in selection',number(100*(nominal.iloc[-1]/nominal.iloc[0]-1),sign=True)+'%')
     metrics[3].metric('Matched observations',f'{len(real):,} / {len(sample):,}')
     datefmt='%d %b %Y' if frequency=='Daily' else '%b %Y'
     st.caption(f'Latest FX: {nominal.index[-1].strftime(datefmt)}' + (f' · Latest RER inputs: {real.index[-1].strftime(datefmt)}' if not real.empty else '') + ' · '+('Monthly observations' if frequency=='Annual' else frequency+' observations'))
@@ -612,9 +665,9 @@ def main():
         relative=100*((real.cpi1.iloc[-1]/real.cpi1.iloc[0])/(real.cpi2.iloc[-1]/real.cpi2.iloc[0])-1)
         fxchange=100*(real.nominal.iloc[-1]/real.nominal.iloc[0]-1)
         scale_note=('Raw RER levels depend on the CPI bases; valuation requires a consistently constructed reference.' if raw_scale else f'The real index averages **100 across valid {"daily proxy observations" if frequency=="Daily" else "months"}** in this selection; that average is not a fair-value estimate.')
-        st.markdown(f'- Across matched observations, **{cur1} {"appreciated" if fxchange>=0 else "depreciated"} {abs(fxchange):.1f}% nominally**; its RER {"rose" if change>=0 else "fell"} **{abs(change):.1f}%** ({"real appreciation" if change>=0 else "real depreciation"}).\n- Relative CPI in Country 1 {"rose" if relative>=0 else "fell"} **{abs(relative):.1f}%** versus Country 2. {scale_note}')
+        st.markdown(f'- Across matched observations, **{cur1} {"appreciated" if fxchange>=0 else "depreciated"} {abs(fxchange):,.1f}% nominally**; its RER {"rose" if change>=0 else "fell"} **{abs(change):,.1f}%** ({"real appreciation" if change>=0 else "real depreciation"}).\n- Relative CPI in Country 1 {"rose" if relative>=0 else "fell"} **{abs(relative):,.1f}%** versus Country 2. {scale_note}')
     else:
-        st.markdown(f'- {cur1} changed **{100*(nominal.iloc[-1]/nominal.iloc[0]-1):+.1f}%** nominally over the selection.\n- CPI coverage is insufficient to calculate a real comparison for these dates.')
+        st.markdown(f'- {cur1} changed **{100*(nominal.iloc[-1]/nominal.iloc[0]-1):+,.1f}%** nominally over the selection.\n- CPI coverage is insufficient to calculate a real comparison for these dates.')
     missing=int(sample.rer.isna().sum())
     if missing: st.caption(f'{missing} observations lack joint CPI/FX inputs. Missing RERs remain blank and are excluded from the mean; nominal observations are retained when available.')
     if frequency=='Annual':
@@ -622,18 +675,40 @@ def main():
         if not partial.empty: st.caption('Incomplete annual RER averages: '+', '.join(f'{i.year} ({int(r.valid_months)}/12 months)' for i,r in partial.iterrows())+'. Each point averages available monthly RERs; the underlying monthly index still averages 100.')
     st.markdown('<div class="rule"></div>',unsafe_allow_html=True)
     st.subheader('02  /  A reference for valuation')
-    settings=st.columns([2.1,1,2.4],gap='medium')
-    methods=['Automatic · screened history']
-    if {c1,c2}=={'G163','USA'}: methods+=['Course assumption · January 1999']
-    reference=settings[0].selectbox('Reference approach',methods,index=1 if homework else 0,key='reference_'+c1+c2+'_'+str(homework))
-    method=settings[1].selectbox('Reference statistic',['Median','Mean'],disabled=reference.startswith('Course'),key='statistic')
+    settings=st.container(key='reference_controls').columns([2.1,1,2.4],gap='medium')
+    methods=['Automatic · screened history','Custom period']
+    reference=settings[0].selectbox('Reference approach',methods,index=0,key='reference_v2_'+c1+c2+'_'+str(homework))
+    method=settings[1].selectbox('Reference statistic',['Median','Mean'],key='statistic')
     profile=settings[2].selectbox('Your perspective',['Research / student','Trader / investor','Company · payments / debt in C1','Company · receipts / assets in C1'],key='profile')
     horizon='2+ years'
     if profile=='Trader / investor': horizon=st.segmented_control('Decision horizon',['Under 2 years','2+ years'],default='2+ years',key='horizon') or '2+ years'
     growth,gnote=growth_data(live)
-    b=benchmark(monthly,c1,c2,growth,method,reference.startswith('Course'),as_of=sample.index.max())
-    if reference.startswith('Course') and not b.get('available') and not homework:
-        b['reason']+=' Select “FRED · previous homework” above to use the complete January 1999 series consistently.'
+    b=benchmark(monthly,c1,c2,growth,method,as_of=sample.index.max())
+    if reference=='Custom period':
+        history=monthly.dropna(subset=['nominal'])
+        bounds=(history.index.min(),history.index.max())
+        initial_start=pd.Timestamp(b['start']) if b.get('available') else bounds[0]
+        initial_end=pd.Timestamp(b['end']) if b.get('available') else initial_start
+        ref_key=f'{c1}_{c2}_{homework}'
+        def set_reference_month(when):
+            for side in ['start','end']:
+                st.session_state[f'ref_{side}_year_{ref_key}']=when.year
+                st.session_state[f'ref_{side}_month_{ref_key}']=when.month
+        for side,when in [('start',initial_start),('end',initial_end)]:
+            st.session_state.setdefault(f'ref_{side}_year_{ref_key}',when.year)
+            st.session_state.setdefault(f'ref_{side}_month_{ref_key}',when.month)
+        fields=st.container(key='benchmark_dates').columns(4,gap='small')
+        endpoints=[]
+        for i,side,title in [(0,'start','Reference start'),(2,'end','Reference end')]:
+            year=fields[i].selectbox(title+' year',list(range(bounds[0].year,bounds[1].year+1)),key=f'ref_{side}_year_{ref_key}',help='Type a year to jump directly to it.')
+            month=fields[i+1].selectbox(title+' month',list(range(1,13)),format_func=lambda m:MONTH_NAMES[m-1],key=f'ref_{side}_month_{ref_key}')
+            endpoints.append(pd.Timestamp(year,month,1))
+        if {c1,c2}=={'G163','USA'}:
+            st.button('Use January 1999',on_click=set_reference_month,args=(pd.Timestamp('1999-01-01'),),key='jan1999_'+ref_key)
+        st.caption('Both endpoints are included. Choose the same month twice for a single-month reference. Custom periods are your assumption of fair value; they do not have to pass the automatic stability screen.')
+        b=custom_benchmark(monthly,*endpoints,method=method,as_of=sample.index.max(),daily=frequency=='Daily')
+        if {c1,c2}=={'G163','USA'} and not b.get('available') and not homework and endpoints[0]<pd.Timestamp('1999-12-01'):
+            b['reason']+=' For January 1999, select “FRED · previous homework” above.'
     with st.expander('Why this benchmark? / Sensitivity',expanded=False):
         st.write(b.get('reason',''))
         tolerance=st.slider('Neutral range around reference (%)',min_value=2,max_value=15,value=5,step=1,help='An explicit judgment threshold, not a statistical confidence interval. Classification also incorporates the reference period’s interquartile range.')
@@ -641,10 +716,13 @@ def main():
         st.caption('Automatic rule: latest qualifying five-year calendar window, ending at least two calendar years before today and no later than the displayed endpoint. Every month requires joint data and prior-year CPI. Inflation: mean 0–6%, at least 90% of months within −1–8%, absolute maximum 12%, standard deviation ≤3 pp. Growth: mean absolute bilateral gap ≤3 pp, maximum yearly gap ≤6 pp, each yearly growth −3–10% and nonnegative period averages. RER: coefficient of variation ≤15%, absolute log trend ≤3% per year. These are disclosed app-design heuristics, not estimates from the paper. Temporary inflation misses or mild recessions no longer automatically disqualify an entire period.')
         st.caption('“Two calendar years” means candidate end-year ≤ current year minus 2 (for example, 2024 in 2026). WEO past-year values may still be estimates and revisions; this rule excludes forecast years, not all estimation uncertainty.')
         if b.get('available'):
-            st.write(f"**{b['label']}** · {b['method']} RER = {b['value']:.6f}")
-            if b.get('diagnostics'): st.json(b['diagnostics'])
+            st.write(f"**{b['label']}** · {b['method']} raw RER = {number(b['value'],display_decimals(monthly.rer))}")
+            if b.get('diagnostics'):
+                d=b['diagnostics']
+                st.caption(f"{d['months']:,} complete months · mean growth gap {number(d['growth_gap'])} pp · RER dispersion {number(100*d['dispersion'])}% · annual RER log trend {number(100*d['trend'])}%")
             if b.get('alternatives'):
-                st.dataframe(pd.DataFrame(b['alternatives']).rename(columns={'value':'Raw RER reference'}),hide_index=True,width='stretch')
+                alternatives=pd.DataFrame(b['alternatives']).rename(columns={'value':'Raw RER reference'})
+                st.dataframe(alternatives.style.format({'Raw RER reference':lambda v:number(v,display_decimals(monthly.rer))}),hide_index=True,width='stretch')
                 st.caption('All passing windows are shown for sensitivity; overlapping windows are not independent estimates. The latest passing window is chosen without considering today’s exchange rate.')
         st.caption(f'Growth: IMF WEO, with EURO mapped to the euro-area aggregate (not EUQ/Europe). {gnote}. Known regime starts restrict candidate history; other pairs rely on the empirical checks only. The chart start date does not select the benchmark; an earlier endpoint excludes future candidates. Revised data are not real-time backtests.')
         st.markdown(f'[Paper]({PAPER}) · [Chile regime](https://si2.bcentral.cl/public/publicaciones_digitales/annualreport2018/en/4-politica-monetaria/) · [Peru regime](https://www.bcrp.gob.pe/eng-docs/Publications/Annual-Reports/2002/Annual-Report-2002-01.pdf) · [IMF group definitions](https://www.imf.org/external/datamapper/api/v1/groups)')
@@ -664,10 +742,10 @@ def main():
         st.write(v['detail'])
         if b.get('alternatives') and len(b['alternatives'])>1 and not real.empty:
             gaps=[100*(real.rer.iloc[-1]/x['value']-1) for x in b['alternatives']]
-            st.caption(f'Across {len(gaps)} qualifying windows, the current gap ranges from {min(gaps):+.1f}% to {max(gaps):+.1f}%. See sensitivity before interpreting fair value.')
+            st.caption(f'Across {len(gaps)} qualifying windows, the current gap ranges from {min(gaps):+,.1f}% to {max(gaps):+,.1f}%. See sensitivity before interpreting fair value.')
         if v['actionable']:
-            st.metric('Reference-implied nominal rate',f'{v["implied"]:,.6g} {quote}')
-            st.caption(f'As of {v["when"].strftime(datefmt)} · movement from observed rate to reference: {v["adjustment"]:+.1f}%. This differs from the valuation gap because the denominator differs.')
+            st.metric('Reference-implied nominal rate',f'{number(v["implied"],nominal_decimals)} {quote}')
+            st.caption(f'As of {v["when"].strftime(datefmt)} · movement from observed rate to reference: {v["adjustment"]:+,.1f}%. This differs from the valuation gap because the denominator differs.')
         st.markdown('**For your perspective**')
         st.write(recommendation(v,profile,cur1,cur2,horizon,cur1==cur2))
         st.caption('Automated, rules-based interpretation. AI-assisted design; no live AI model, probability estimate or guaranteed return. Historical monetary regimes may have changed; no current-regime verification is implied.')
@@ -675,12 +753,12 @@ def main():
         st.caption('Purple shading is historical dispersion, not a confidence interval. Both charts use the same RER scale. The fixed benchmark need not equal 100 on the index scale. Under fixed exchange rates, adjustment can occur through inflation.')
     if {c1,c2}=={'G163','USA'}:
         with st.expander('Compare with the first EUR/USD homework'):
-            st.markdown('To reproduce it, choose **Monthly**, **FRED · previous homework** and **Course assumption · January 1999**. FRED defaults to the original raw RER scale; change it in the sidebar if desired. The first app assignment view instead uses IMF data and a selected-sample index of 100. CPI base years change raw RER levels; source definitions, FX fixing times, date range and daily CPI lags can also change the series. A rebased index of 100 is not a fair-value benchmark.')
+            st.markdown('To reproduce it, choose **Monthly**, **FRED · previous homework**, **Custom period**, then **Use January 1999**. Automatic is the default for every data basis. FRED uses the original raw RER scale; change it in the sidebar if desired. The default IMF view uses a selected-sample index of 100. CPI base years change raw RER levels; source definitions, FX fixing times, date range and daily CPI lags can also change the series. A rebased index of 100 is not a fair-value benchmark.')
             fm,_,_=fred_pair('G163','USA',False)
             fref=benchmark(fm,'G163','USA',{},course=True)
             if fref.get('available'):
                 last=fm.dropna(subset=['rer']).iloc[-1]
-                st.write(f"FRED monthly check for {last.name:%B %Y}: raw RER **{last.rer:.9f}**, January 1999 anchor **{fref['value']:.9f}**, nominal **{last.nominal:.6f} USD/EUR**, PPP-implied **{fref['value']*last.cpi2/last.cpi1:.6f} USD/EUR**; gap **{100*(last.rer/fref['value']-1):+.2f}%**. This check always evaluates EUR against USD.")
+                st.write(f"FRED monthly check for {last.name:%B %Y}: raw RER **{number(last.rer,2)}**, January 1999 anchor **{number(fref['value'],2)}**, nominal **{number(last.nominal,2)} USD/EUR**, PPP-implied **{number(fref['value']*last.cpi2/last.cpi1,2)} USD/EUR**; gap **{number(100*(last.rer/fref['value']-1),sign=True)}%**. This check always evaluates EUR against USD. Downloads retain full calculation precision.")
             st.markdown('[US CPI](https://fred.stlouisfed.org/series/CPIAUCNS) · [Euro-area 19-country HICP](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST) · [USD/EUR](https://fred.stlouisfed.org/series/DEXUSEU)')
             st.caption('The October 26 snapshot reproduces 332 valid months in the original workbook. October 2025 US CPI is missing from the current FRED series; the workbook contains 324.8 for that month. This app keeps the missing RER blank instead of carrying a price observation forward.')
     st.markdown('<div class="rule"></div>',unsafe_allow_html=True)
@@ -692,6 +770,7 @@ def main():
     export['chart_rer_scale']='Raw RER' if raw_scale else 'Selected-sample index = 100'
     export['benchmark_start']=b.get('start','');export['benchmark_end']=b.get('end','')
     export['benchmark_method']=b.get('method','Unavailable')
+    export['benchmark_approach']=reference
     export['source_notes']=' | '.join(notes)
     export['valid_rer']=export.rer.notna()
     downloads=st.columns([1.5,1.5,3])
@@ -700,7 +779,13 @@ def main():
         downloads[1].download_button('↓ Annual chart CSV',display2.reset_index().to_csv(index=False).encode('utf-8'),file_name=f'parity_{c1}_{c2}_annual_chart.csv',mime='text/csv',width='stretch')
     downloads[2].caption('The observations CSV includes raw CPI and FX inputs, nominal S, RER, sample mean, real index, missing-data flags, benchmark calculations and source dates.')
     with st.expander('Inspect observations & source status'):
-        st.dataframe(export,width='stretch',hide_index=True)
+        formats={}
+        for col in export.select_dtypes(include=[np.number]).columns:
+            digits=display_decimals(export[col],'nominal' if col in ['nominal','implied_nominal','fx1_per_usd','fx2_per_usd'] else 'rer')
+            if col.endswith('_pct'): digits=1
+            formats[col]=lambda value,d=digits:number(value,d)
+        st.dataframe(export.style.format(formats,na_rep='—'),width='stretch',hide_index=True)
+        st.caption('Rounded for readability. CSV downloads retain full precision and ungrouped numeric values for analysis.')
         for note in notes: st.caption(note)
         st.caption('Data may be revised or delayed. Official rates can differ from executable market rates, particularly under controls or multiple-rate regimes. BIS may express historical redenominations in current currency units; those historical levels are not executable quotes. National euro-member comparisons begin at euro adoption. Daily source coverage is narrower than monthly IMF coverage.')
 

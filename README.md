@@ -19,6 +19,8 @@ Choose Country 1 (currency evaluated), Country 2 (comparison/home), a time frame
 
 ## Economics
 
+Numbers use English comma thousands separators and a decimal point throughout the display. RER usually has one decimal, or two when the central 80% of the plotted variation spans less than one unit. Small raw RER levels retain at least two significant digits. Nominal quotes with typical magnitude at least 100 use whole units; ordinary quotes use two decimals; quotes below 0.1 gain decimal places to retain at least two significant digits (for example, 0.0011). These are presentation rules only. Charts use unrounded coordinates, all calculations use full precision, and CSV files retain unrounded numeric values without grouping commas.
+
 IMF FX inputs are local-currency units per USD:
 
 ```
@@ -68,7 +70,11 @@ Changing the start date does not affect the benchmark. The endpoint bounds eligi
 
 ### EUR/USD course scenario
 
-For Euro area/US, choose **FRED · previous homework** and **Monthly**. This uses the original CPIAUCNS, CP0000EZ19M086NEST (EA19 HICP) and DEXUSEU series consistently, with daily FX averaged by month. It defaults to the **January 1999 course assumption**, full matched history, and raw RER scale. No FRED/IMF splicing occurs. The IMF basis remains available for the second assignment and defaults to its required mean-100 index.
+For Euro area/US, choose **FRED · previous homework** and **Monthly**. This uses the original CPIAUCNS, CP0000EZ19M086NEST (EA19 HICP) and DEXUSEU series consistently, with daily FX averaged by month. It defaults to full matched history and raw RER scale. **Automatic is the default benchmark in every view.** To reproduce the January 1999 course assumption, select **Custom period**, then **Use January 1999**. No FRED/IMF splicing occurs. The IMF basis remains available for the second assignment and defaults to its required mean-100 index.
+
+### Custom reference periods
+
+Select **Custom period** and choose starting and ending year/month. Endpoints are inclusive and may be the same month. The reference is the median or mean of the raw monthly RER, independent of chart frequency and chart start date. The nominal implied path and valuation insights update from the unrounded reference. A custom period is a user assumption, not a successful automatic stability screen. Reversed dates, any missing monthly RER inputs, or a reference completed after the displayed endpoint produce a clear explanation and no valuation call. In daily mode a reference month must have ended by the displayed endpoint. The export records the approach, statistic and period.
 
 The FRED snapshot reproduces September 2026: observed 1.150480952 USD/EUR, January-1999-reference-implied 1.300765911 USD/EUR, valuation gap −11.5536%, required appreciation +13.0628%. An above-100 selected-sample index and an undervaluation relative to January 1999 can coexist because they use different references. Changing CPI index bases alone changes raw levels, not a consistently calculated benchmark ratio. The January anchor is a **course assumption**, not independently established equilibrium. IMF euro-area HICP starts December 1999 in this snapshot, so it cannot supply that January reference.
 
