@@ -14,4 +14,8 @@ Streamlit / Python 3.12; monthly IMF CPI and FX from 1976 where available; S as 
 
 ## Implementation decisions for human review
 
-Monthly IMF is the default. Daily is an explicit ECB FX / lagged IMF CPI proxy. The first graph's normalization is separate from the second's historical valuation anchor. Automatic anchors use disclosed conservative screens and published historical regime coverage. EUR/USD January 1999 is an optional course assumption. Deterministic insights make reasoning inspectable and require no AI API key.
+Monthly IMF is the default. Daily is an explicit BIS/ECB FX and lagged CPI proxy. The first graph's normalization is separate from the second's historical valuation anchor. Automatic anchors use disclosed stability screens and historical regime starts where documented. EUR/USD January 1999 is an optional course assumption. Deterministic insights make reasoning inspectable and require no AI API key.
+
+## October 26 feedback and revision
+
+The user requested English controls throughout, easier month/year selection, longer history toward 1980, reconciliation with the first EUR/USD homework, and less restrictive benchmark eligibility. The user clarified that Monthly should remain default if daily RER is a proxy or coverage is limited. Choices are Daily/Monthly/Annual, with Monthly selected. Searchable year selectors, English month/day selectors and quick ranges replace the locale-dependent calendar. BIS extends daily FX history without inventing CPI or pre-euro trading. A separate, internally consistent FRED view reproduces the first homework's series, raw RER and January 1999 assumption. Automatic screening removes the country whitelist and 2007 cutoff, permits temporary inflation misses and mild recessions, discloses thresholds, and reports sensitivity across qualifying periods. Qualification remains conditional evidence, not proof of fair value. No benchmark is manufactured when data or screens fail.

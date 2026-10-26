@@ -74,6 +74,58 @@ class EconomicsTests(unittest.TestCase):
         self.assertIn('no bilateral currency trade',app.recommendation({'actionable':False},'Trader / investor','EUR','EUR','2+ years',True))
         self.assertIn('No short-horizon trade signal',app.recommendation({'actionable':True},'Trader / investor','GBP','USD','Under 2 years'))
 
+    def test_fred_homework_reproduction_and_inverse(self):
+        m,d,_=app.fred_pair('G163','USA')
+        b=app.benchmark(m,'G163','USA',{},course=True)
+        self.assertAlmostEqual(b['value'],0.4026143434667008,places=8)
+        self.assertAlmostEqual(m.loc['2026-09-01','rer'],0.3560979952626863,places=8)
+        self.assertAlmostEqual(b['value']*m.loc['2026-09-01','cpi2']/m.loc['2026-09-01','cpi1'],1.3007659112826748,places=8)
+        inv,_,_=app.fred_pair('USA','G163')
+        joined=m[['nominal','rer']].join(inv[['nominal','rer']],rsuffix='_inv').dropna()
+        np.testing.assert_allclose(joined.rer*joined.rer_inv,1)
+        np.testing.assert_allclose(joined.nominal*joined.nominal_inv,1)
+        self.assertLessEqual(app.make_daily(m,d).dropna(subset=['rer']).index.min(),pd.Timestamp('1999-01-04'))
+
+    def test_extended_daily_history_and_quote(self):
+        f,_=app.daily_fx('GBP','USD')
+        self.assertLessEqual(f.index.min(),pd.Timestamp('1980-01-01'))
+        np.testing.assert_allclose(f.nominal,1/f.fx1_per_usd)
+        for cur in ['CLP','PEN']:
+            x,_=app.daily_fx(cur,'USD')
+            self.assertGreater(len(x),1000)
+        euro,_=app.daily_fx('EUR','USD')
+        self.assertGreaterEqual(euro.index.min(),pd.Timestamp('1999-01-01'))
+
+    def test_broader_screen_and_no_future_reference(self):
+        growth,_=app.growth_data()
+        for code in ['CHL','PER','G163']:
+            m,_=app.monthly_pair(code,'USA')
+            b=app.benchmark(m,code,'USA',growth,as_of='2026-09-30')
+            self.assertTrue(b['available'],b.get('reason'))
+            self.assertLessEqual(b['end'],'2024-12-01')
+            self.assertEqual(b['diagnostics']['months'],60)
+            early=app.benchmark(m,code,'USA',growth,as_of='2010-06-01')
+            if early['available']: self.assertLessEqual(early['end'],'2009-12-01')
+
+    def test_unstable_data_does_not_gain_benchmark(self):
+        idx=pd.date_range('2000-01-01','2019-12-01',freq='MS')
+        f=pd.DataFrame({'cpi1':100*1.03**np.arange(len(idx)),'cpi2':100*1.001**np.arange(len(idx)),
+                        'rer':np.ones(len(idx))},index=idx)
+        g={c:{str(y):2 for y in range(2000,2020)} for c in ['CHL','USA']}
+        b=app.benchmark(f,'CHL','USA',g)
+        self.assertFalse(b['available'])
+        self.assertIn('Inflation',b['reason'])
+
+    def test_raw_rer_chart_preserves_homework_scale(self):
+        f,_,_=app.fred_pair('G163','USA')
+        b=app.benchmark(f,'G163','USA',{},course=True)
+        n,mean=app.normalize(f.loc['1999-01':'2026-09'])
+        enriched=app.add_benchmark(n,b,mean)
+        fig=app.chart(enriched,'Both','USD per EUR',mean,b,raw=True)
+        np.testing.assert_allclose(fig.data[0].y,enriched.rer,equal_nan=True)
+        self.assertAlmostEqual(fig.data[2].y[0],b['value'])
+        self.assertEqual(fig.layout.yaxis.title.text,'Raw RER')
+
     def test_chart_modes_and_axes(self):
         f,mean=app.normalize(self.m.loc['2020-01':'2020-12'])
         for mode in ['Real','Nominal','Both']:

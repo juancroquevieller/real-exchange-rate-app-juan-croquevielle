@@ -15,7 +15,7 @@ On [Streamlit Community Cloud](https://share.streamlit.io), choose this reposito
 
 ## Use
 
-Choose Country 1 (currency evaluated), Country 2 (comparison/home), a time frame, dates, and Real/Nominal/Both. The first chart has two automatic summaries. The second adds a historical RER reference and its nominal implication when supported. Research, trader, foreign debt/payments, and foreign assets/receipts perspectives tailor the interpretation. Download all observations and calculations as CSV; annual mode also offers its plotted annual aggregates.
+Choose Country 1 (currency evaluated), Country 2 (comparison/home), a time frame, dates, and Real/Nominal/Both. Monthly is the default; choices are ordered Daily, Monthly, Annual. English year/month/day selectors adapt to the frequency. Type a year to jump directly to it, or use 1Y/5Y/10Y/All. The first chart has two automatic summaries. The second adds a historical RER reference and its nominal implication when supported. Research, trader, foreign debt/payments, and foreign assets/receipts perspectives tailor the interpretation. Download all observations and calculations as CSV; annual mode also offers its plotted annual aggregates.
 
 ## Economics
 
@@ -32,7 +32,9 @@ UK/US means USD per GBP. Changing dates recalculates q*. The valid monthly real 
 
 Annual observations average monthly S, q and I; they do not multiply annual-average inputs. Partial-year coverage is displayed. The observations CSV remains monthly in annual mode for reproducibility. Annual index points need not average 100 without weighting for different monthly coverage.
 
-Daily mode is a labeled extension: ECB business-day reference FX, crossed via EUR, combined with IMF CPI from two calendar months earlier. There is no daily CPI invention, interpolation, weekend FX filling, or indefinite CPI carry-forward. The fixed lag does not verify each country's actual release dates; revised CPI means this is **not a point-in-time trading backtest**. Unsupported daily pairs receive an explicit explanation.
+Daily mode is a labeled extension: BIS daily reference FX (ECB fallback), combined with CPI from two calendar months earlier. There is no daily CPI invention, interpolation, weekend FX filling, or indefinite CPI carry-forward. The fixed lag does not verify each country's actual release dates; revised CPI means this is **not a point-in-time trading backtest**. Unsupported daily pairs receive an explicit explanation. This is why Monthly remains the default even with broader daily FX coverage.
+
+The date controls use available nominal history, keeping dates accessible when CPI is missing. The download starts in 1976 where available. Daily GBP/USD reaches 1976, CLP/USD August 1982, and PEN/USD August 1990. The euro itself starts in January 1999; no predecessor-currency backcast is presented as traded EUR. BIS may restate older observations in current currency units: historical levels should not be interpreted as executable quotes in the currency units circulating at that time.
 
 Missing/nonpositive inputs are excluded from RER without filling across gaps. Nominal observations remain where available. National euro-member comparisons use EUR FX starting at euro adoption to avoid mixing national units with EUR. Other currencies may have redenominations, multiple rates or measurement breaks requiring further research.
 
@@ -51,22 +53,24 @@ The two percentages have different denominators. A low RER suggests Country 1 is
 
 ### Automatic screening
 
-Automatic references are restricted to pairs with documented pre-2008 monetary-regime coverage in Eichenbaum, Johannsen and Rebelo (2019), pp. 6–7: US, UK, Canada, Australia, New Zealand, Sweden and Germany. German national comparisons start at EUR adoption, further limiting eligible overlap. Other pairs get no invented regime history or automatic valuation label.
+Automatic references screen every pair with sufficient data. The former country whitelist and pre-2008 cutoff were overly restrictive and have been removed. Documented regime starts still bound the search where available: the paper's histories, euro introduction in 1999, Chile's floating regime from September 1999, and Peru's inflation-targeting framework from January 2002. Unverified regime coverage is disclosed. Euro-area growth uses the IMF DataMapper aggregate **EURO**, not EUQ (Europe).
 
-Search five complete calendar years, most recent first, ending by 2007 within both documented regimes. Require:
+Search five complete calendar years, most recent first, ending at least two calendar years before the current year and no later than the displayed endpoint. Require:
 
 - All 60 monthly CPI/FX observations plus prior-year CPI.
-- Both year-over-year inflation rates always 0–5%, each with standard deviation ≤2 percentage points.
-- Annual growth rates all 0–8%; mean absolute bilateral growth difference ≤2 percentage points.
-- RER coefficient of variation ≤10%; absolute fitted log trend ≤2% per year.
+- Both year-over-year inflation means 0–6%; at least 90% of months within −1–8%; no absolute inflation above 12%; standard deviation ≤3 percentage points.
+- Annual growth rates all −3–10%, nonnegative period means; mean absolute bilateral growth difference ≤3 percentage points and maximum yearly difference ≤6 points.
+- RER coefficient of variation ≤15%; absolute fitted log trend ≤3% per year.
 
-Use the median (default) or mean of the latest passing window. **These thresholds are app-design heuristics, not estimates or thresholds from the paper.** WEO GDP growth uses pre-2008 historical years only, avoiding projections. A passing period is an indicative anchor, not proof of equilibrium or current monetary-regime continuity. Failure means insufficient evidence in this app, not proof that no fair-value period exists.
+Use the median (default) or mean of the latest passing window. Current valuation never enters window ranking. Show all passing windows and the range of valuation gaps in the sensitivity panel. **These thresholds are app-design heuristics, not estimates or thresholds from the paper.** The two-year buffer excludes current/next-year WEO forecasts; historical observations can still be estimates and are revised. A passing period is an indicative anchor, not proof of equilibrium or current monetary-regime continuity. Failure means insufficient evidence in this app, not proof that no fair-value period exists. In the October 26 snapshot, Chile/US and Peru/US both qualify for 2015–2019.
 
-The benchmark stays independent of viewing dates. If the selected endpoint predates completion of the reference, it is withheld to avoid look-ahead. Other historical plots are retrospective comparisons, not simulated trading results.
+Changing the start date does not affect the benchmark. The endpoint bounds eligible reference windows to avoid selecting a period completed after that endpoint. Historical plots remain retrospective comparisons, not simulated trading results.
 
 ### EUR/USD course scenario
 
-An explicit optional January 1999 reference implements the first homework's fair-pricing assumption when that month has joint data. The downloaded IMF euro-area HICP begins December 1999, so the current snapshot correctly reports the January anchor as unavailable. It does not silently substitute December or splice in another provider. If IMF supplies the missing month later, it uses those consistent series. Results can differ from the original FRED-based homework due to source series, CPI definitions and revisions. It is a **course assumption**, not a verified equilibrium observation.
+For Euro area/US, choose **FRED · previous homework** and **Monthly**. This uses the original CPIAUCNS, CP0000EZ19M086NEST (EA19 HICP) and DEXUSEU series consistently, with daily FX averaged by month. It defaults to the **January 1999 course assumption**, full matched history, and raw RER scale. No FRED/IMF splicing occurs. The IMF basis remains available for the second assignment and defaults to its required mean-100 index.
+
+The FRED snapshot reproduces September 2026: observed 1.150480952 USD/EUR, January-1999-reference-implied 1.300765911 USD/EUR, valuation gap −11.5536%, required appreciation +13.0628%. An above-100 selected-sample index and an undervaluation relative to January 1999 can coexist because they use different references. Changing CPI index bases alone changes raw levels, not a consistently calculated benchmark ratio. The January anchor is a **course assumption**, not independently established equilibrium. IMF euro-area HICP starts December 1999 in this snapshot, so it cannot supply that January reference.
 
 ### Automated insights
 
@@ -81,8 +85,10 @@ The paper supports stronger medium/long-horizon predictability under inflation t
 - [IMF SDMX](https://data.imf.org/en/Resource-Pages/IMF-API): CPI `ISO3.CPI._T.IX.M`; euro area uses `G163.HICP._T.IX.M`; period-average FX `ISO3.XDC_USD.PA_RT.M`; latest version `~`.
 - [IMF DataMapper](https://www.imf.org/external/datamapper/api/help): countries and WEO historical `NGDP_RPCH` real GDP growth.
 - [ECB](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html): daily reference FX where covered.
+- [BIS bilateral exchange rates](https://data.bis.org/topics/XRU): daily currency units per USD, with source and break fields retained in the snapshot.
+- [FRED US CPI](https://fred.stlouisfed.org/series/CPIAUCNS), [EA19 HICP](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST), and [USD/EUR](https://fred.stlouisfed.org/series/DEXUSEU): separate homework reproduction basis.
 
-Default mode uses a verified, dated public-source snapshot for reproducible loading, **not a live feed**. `data/sources.json` records source URLs and UTC retrieval timestamps. Enable **Refresh from live sources** to attempt downloads; failures explicitly fall back to snapshots. Live results cache six hours (growth one day). Run `python refresh_data.py` and commit results to refresh bundled data. No scheduled updater or trading automation is configured.
+Default mode uses a verified, dated public-source snapshot for reproducible loading, **not a live feed**. `data/sources.json` records source URLs and UTC retrieval timestamps. Enable **Refresh from live sources** to attempt downloads; failures explicitly fall back to snapshots. Live results cache six hours (growth one day). Run `python refresh_data.py` and `python refresh_extended_data.py` and commit results to refresh bundled data. No scheduled updater or trading automation is configured.
 
 ## Verify and submit
 

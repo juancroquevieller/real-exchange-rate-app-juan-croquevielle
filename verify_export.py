@@ -10,7 +10,7 @@ def main():
     monthly,notes=app.monthly_pair('GBR','USA')
     selected,mean=app.normalize(monthly.loc['2016-10':'2026-09'])
     growth,_=app.growth_data()
-    b=app.benchmark(monthly,'GBR','USA',growth)
+    b=app.benchmark(monthly,'GBR','USA',growth,as_of=selected.index.max())
     result=app.add_benchmark(selected,b,mean).reset_index()
     result.insert(1,'country1','GBR');result.insert(2,'country2','USA')
     result['quote_direction']='USD per GBP';result['frequency']='M'
@@ -32,11 +32,11 @@ def main():
     assert abs(exported_mean-100)<Decimal('1e-10')
     report=f'''# RER app verification
 
-Prepared October 25, 2026 (America/Chicago).
+Prepared October 26, 2026 (America/Chicago).
 
 Repository: https://github.com/juancroquevieller/real-exchange-rate-app-juan-croquevielle
 
-Deployment URL: pending Streamlit sign-in and deployment.
+Deployment URL: https://parity-rer-juan-croquevielle.streamlit.app/
 
 AI assistance: OpenAI Codex, GPT-6-based agent. Confirm the exact model variant in the app UI for submission. See PROMPTS.md in the project for the request and design decisions; keep screenshots of the original conversation as evidence.
 
@@ -70,11 +70,21 @@ The reference is distinct from the selected-sample mean. It passes the disclosed
 
 Economic tests cover quote direction, inverse pairs, average-100 rebasing, gaps, aggregation, daily lag, benchmark conversion, unsupported/look-ahead references and axes. Streamlit interaction tests exercise the three time frames, user profiles, Euro area, same-currency pairs, and unsupported daily data. Desktop, phone (390 px), and tablet (820 px) layouts were reviewed in Chrome.
 
-The downloaded IMF euro-area HICP starts December 1999. The optional January 1999 course scenario therefore reports insufficient data instead of substituting a different period.
+The downloaded IMF euro-area HICP starts December 1999. The separate FRED homework view uses consistent FRED CPI and FX series, includes January 1999, and reproduces the original homework benchmark without splicing sources. See EUR_USD_homework_verification.csv.
 
-Sources: IMF CPI/ER/WEO and ECB daily FX. See the CSV's source notes and data/sources.json for exact retrieval timestamps. This file is preparation material; add the deployed Streamlit URL and your chat screenshots before submission.
+Sources: IMF CPI/ER/WEO, BIS/ECB daily FX, and FRED CPIAUCNS/CP0000EZ19M086NEST/DEXUSEU. See the CSV's source notes and data/sources.json for exact retrieval timestamps. This file is preparation material; add your chat screenshots before submission.
 '''
     (output/'Verification.md').write_text(report,encoding='utf-8')
+    fred,_,_=app.fred_pair('G163','USA')
+    fred,fred_mean=app.normalize(fred.dropna(subset=['rer']))
+    anchor=app.benchmark(fred,'G163','USA',{},course=True)
+    fred=app.add_benchmark(fred,anchor,fred_mean)
+    fred.to_csv(output/'EUR_USD_homework_verification.csv')
+    latest=fred.loc['2026-09-01']
+    assert abs(latest.nominal-1.1504809523809523)<1e-10
+    assert abs(latest.rer-0.3560979952626863)<1e-10
+    assert abs(anchor['value']-0.4026143434667008)<1e-10
+    print('FRED homework: September 2026 nominal',latest.nominal,'raw RER',latest.rer,'January 1999 reference',anchor['value'])
     print('Created:',csv)
     print('Decimal-verified RER:',q,'; index:',index,'; mean index:',exported_mean)
 
