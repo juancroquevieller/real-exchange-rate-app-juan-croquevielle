@@ -28,5 +28,20 @@
     "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/CPI/~/G163.HICP._T.IX.M",
     "retrieved_at": "2026-10-26T02:48:42.889634+00:00",
     "bytes": 2153
+  },
+  "bis_daily.csv.gz": {
+    "url": "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_XRU/1.0/D.GB+CL+PE+XM+AU+CA+CH+CN+CO+BR+MX+NZ+JP+SE+NO+DK+IN+ID+KR+ZA+HK+SG+TH+MY+PH+IL+TR+CZ+HU+PL+RO+IS+AR..?format=csv&startPeriod=1976-01-01",
+    "retrieved_at": "2026-10-26T15:32:06.909257+00:00",
+    "bytes": 2409871
+  },
+  "fred_cpi.csv.gz": {
+    "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCNS,CP0000EZ19M086NEST",
+    "retrieved_at": "2026-10-26T15:31:48.269134+00:00",
+    "bytes": 6822
+  },
+  "fred_eurusd.csv.gz": {
+    "url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXUSEU",
+    "retrieved_at": "2026-10-26T15:31:48.318172+00:00",
+    "bytes": 33028
   }
 }
