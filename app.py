@@ -757,14 +757,13 @@ def main():
         b=dict(available=False,reason='The selected endpoint predates completion of the fixed benchmark period. No benchmark is displayed to avoid look-ahead.')
     enriched=add_benchmark(sample,b,mean)
     display2=annual_view(enriched) if frequency=='Annual' else enriched
-    left,right=st.container(key='benchmark_panel').columns([2.5,1],gap='large')
-    with left:
-        if b.get('available'): st.caption(b['label']+' · fixed RER anchor; nominal PPP path adjusts with relative CPI')
-        else: st.caption('Evolution shown without a benchmark · evidence is insufficient')
-        st.plotly_chart(chart(display2,mode,quote,mean,b,show_band,raw=raw_scale,frequency=frequency),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='reference_chart')
-    with right:
-        v=valuation(enriched,b,tolerance)
-        if cur1==cur2: v=dict(status='No bilateral FX signal',detail='Shared currency: relative prices explain RER movements.',actionable=False)
+    if b.get('available'): st.caption(b['label']+' · fixed RER anchor; nominal PPP path adjusts with relative CPI')
+    else: st.caption('Evolution shown without a benchmark · evidence is insufficient')
+    st.plotly_chart(chart(display2,mode,quote,mean,b,show_band,raw=raw_scale,frequency=frequency),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='reference_chart')
+    v=valuation(enriched,b,tolerance)
+    if cur1==cur2: v=dict(status='No bilateral FX signal',detail='Shared currency: relative prices explain RER movements.',actionable=False)
+    insights,actions=st.container(key='benchmark_panel').columns(2,gap='large')
+    with insights:
         st.markdown(f'### {cur1} · {v["status"]}')
         st.write(v['detail'])
         if b.get('alternatives') and len(b['alternatives'])>1 and not real.empty:
@@ -773,7 +772,8 @@ def main():
         if v['actionable']:
             st.metric('Reference-implied nominal rate',f'{number(v["implied"],nominal_decimals)} {quote}')
             st.caption(f'As of {v["when"].strftime(datefmt)} · movement from observed rate to reference: {v["adjustment"]:+,.1f}%. This differs from the valuation gap because the denominator differs.')
-        st.markdown('**For your perspective**')
+    with actions:
+        st.markdown('### For your perspective')
         st.write(recommendation(v,profile,cur1,cur2,horizon,cur1==cur2))
         st.caption('Automated, rules-based interpretation. AI-assisted design; no live AI model, probability estimate or guaranteed return. Historical monetary regimes may have changed; no current-regime verification is implied.')
     if b.get('available'):
