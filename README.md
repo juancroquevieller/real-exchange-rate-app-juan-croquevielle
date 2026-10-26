@@ -4,7 +4,7 @@ A responsive Streamlit app comparing bilateral nominal and real exchange rates u
 
 ## Run and publish
 
-Python 3.12 recommended. The assignment files `app.py`, `requirements.txt`, and `README.md` are at repository root.
+Python 3.12 recommended. `app.py`, `requirements.txt`, and `README.md` are at repository root.
 
 ```sh
 python -m pip install -r requirements.txt
@@ -68,15 +68,21 @@ Use the median (default) or mean of the latest passing window. Current valuation
 
 Changing the start date does not affect the benchmark. The endpoint bounds eligible reference windows to avoid selecting a period completed after that endpoint. Historical plots remain retrospective comparisons, not simulated trading results.
 
-### EUR/USD course scenario
+### EUR/USD source selection and interpretation
 
-For Euro area/US, choose **FRED · previous homework** and **Monthly**. This uses the original CPIAUCNS, CP0000EZ19M086NEST (EA19 HICP) and DEXUSEU series consistently, with daily FX averaged by month. It defaults to full matched history and raw RER scale. **Automatic is the default benchmark in every view.** To reproduce the January 1999 course assumption, select **Custom period**, then **Use January 1999**. No FRED/IMF splicing occurs. The IMF basis remains available for the second assignment and defaults to its required mean-100 index.
+For Euro area/US, select **IMF** or **FRED**. IMF supplies monthly CPI/HICP and period-average FX. FRED distributes BLS US CPI (CPIAUCNS), Eurostat 19-country euro-area HICP (CP0000EZ19M086NEST), and Federal Reserve noon New York USD/EUR observations (DEXUSEU), averaged by month. No FRED/IMF splicing occurs. Price-index definitions, geographic coverage, exchange-rate observation times, revisions and missing observations can affect the trend and gap. Neither provider establishes fair value.
+
+Both sources default to a mean-100 index. Switching sources preserves scale, chart dates where coverage permits, reference approach and custom reference dates. Automatic remains the initial benchmark choice and independently screens each selected source. The explanation panel additionally compares sources using the latest common monthly observation, identical reference dates and the same statistic, without independently re-selecting the comparison source's benchmark.
+
+Benchmark choice can matter much more than source choice. In the October 26 snapshot, the August 2026 valuation gap against a 2015–2019 median is −1.1% for IMF and −1.3% for FRED. Keeping FRED but changing the reference to January 1999 gives −10.9%. These are different economic assumptions about the reference level. Raw CPI base-year scaling changes chart levels, but cancels out of a consistently calculated benchmark ratio; a sample-mean index above 100 does not itself indicate overvaluation.
+
+To explore a euro-launch assumption, select **FRED → Custom period → Use January 1999**. Use **All** for the full available history, and the sidebar to select raw RER if desired. IMF euro-area HICP starts in December 1999 in the bundled snapshot, so a January reference is unavailable for that source.
 
 ### Custom reference periods
 
 Select **Custom period** and choose starting and ending year/month. Endpoints are inclusive and may be the same month. The reference is the median or mean of the raw monthly RER, independent of chart frequency and chart start date. The nominal implied path and valuation insights update from the unrounded reference. A custom period is a user assumption, not a successful automatic stability screen. Reversed dates, any missing monthly RER inputs, or a reference completed after the displayed endpoint produce a clear explanation and no valuation call. In daily mode a reference month must have ended by the displayed endpoint. The export records the approach, statistic and period.
 
-The FRED snapshot reproduces September 2026: observed 1.150480952 USD/EUR, January-1999-reference-implied 1.300765911 USD/EUR, valuation gap −11.5536%, required appreciation +13.0628%. An above-100 selected-sample index and an undervaluation relative to January 1999 can coexist because they use different references. Changing CPI index bases alone changes raw levels, not a consistently calculated benchmark ratio. The January anchor is a **course assumption**, not independently established equilibrium. IMF euro-area HICP starts December 1999 in this snapshot, so it cannot supply that January reference.
+As a reproducible calculation example, the FRED snapshot gives September 2026 observed FX of 1.150480952 USD/EUR and a January-1999-reference-implied rate of 1.300765911 USD/EUR: gap −11.5536%, required appreciation +13.0628%. This launch-date reference assumes fair pricing in January 1999; it is not independently established equilibrium.
 
 ### Automated insights
 
@@ -92,12 +98,12 @@ The paper supports stronger medium/long-horizon predictability under inflation t
 - [IMF DataMapper](https://www.imf.org/external/datamapper/api/help): countries and WEO historical `NGDP_RPCH` real GDP growth.
 - [ECB](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html): daily reference FX where covered.
 - [BIS bilateral exchange rates](https://data.bis.org/topics/XRU): daily currency units per USD, with source and break fields retained in the snapshot.
-- [FRED US CPI](https://fred.stlouisfed.org/series/CPIAUCNS), [EA19 HICP](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST), and [USD/EUR](https://fred.stlouisfed.org/series/DEXUSEU): separate homework reproduction basis.
+- [FRED US CPI](https://fred.stlouisfed.org/series/CPIAUCNS), [EA19 HICP](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST), and [USD/EUR](https://fred.stlouisfed.org/series/DEXUSEU): alternative internally consistent EUR/USD source bundle.
 
 Default mode uses a verified, dated public-source snapshot for reproducible loading, **not a live feed**. `data/sources.json` records source URLs and UTC retrieval timestamps. Enable **Refresh from live sources** to attempt downloads; failures explicitly fall back to snapshots. Live results cache six hours (growth one day). Run `python refresh_data.py` and `python refresh_extended_data.py` and commit results to refresh bundled data. No scheduled updater or trading automation is configured.
 
-## Verify and submit
+## Verification
 
 `python -m unittest -v` checks quote direction, inverse pairs, average-100 rebasing, missing inputs, annual aggregation, daily lag, benchmark conversion/gap denominators, unsupported/look-ahead benchmarks, same-currency behavior and chart axes.
 
-`PROMPTS.md` records AI assistance. The course also requires a submission document with deployed URL, GitHub URL, prompts/chat screenshots, model names and dates, a manual RER verification, plus an exported CSV. Course PDFs and personal files are intentionally outside this public repository.
+`PROMPTS.md` records AI assistance and development decisions. `verify_export.py` independently checks exported calculations using decimal arithmetic. Personal files remain outside this public repository.

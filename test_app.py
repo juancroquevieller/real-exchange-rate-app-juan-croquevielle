@@ -170,4 +170,18 @@ class EconomicsTests(unittest.TestCase):
             self.assertFalse(app.custom_benchmark(f,start,end,as_of=asof,daily=daily)['available'])
         self.assertTrue(app.custom_benchmark(f,'1999-01','1999-01',as_of='1999-01-31',daily=True)['available'])
 
+    def test_source_comparison_holds_month_and_reference_fixed(self):
+        im,_=app.monthly_pair('G163','USA')
+        fm,_,_=app.fred_pair('G163','USA')
+        when,rows=app.compare_sources(im,fm,'2015-01','2019-12','Median','2026-09-01')
+        self.assertEqual(when,pd.Timestamp('2026-08-01'))
+        self.assertAlmostEqual(rows.loc[rows.Source=='IMF','Gap'].iloc[0],-1.0517305999859339)
+        self.assertAlmostEqual(rows.loc[rows.Source=='FRED','Gap'].iloc[0],-1.2528519476276867)
+        _,launch=app.compare_sources(im,fm,'1999-01','1999-01','Median','2026-09-01')
+        self.assertTrue(pd.isna(launch.loc[launch.Source=='IMF','Gap'].iloc[0]))
+        self.assertAlmostEqual(launch.loc[launch.Source=='FRED','Gap'].iloc[0],-10.890889352488909)
+        _,scaled=app.compare_sources(im.assign(rer=im.rer*17,cpi1=im.cpi1*17),fm,'2015-01','2019-12','Median','2026-09-01')
+        np.testing.assert_allclose(rows.Gap,scaled.Gap)
+        np.testing.assert_allclose(rows.Implied,scaled.Implied)
+
 if __name__=='__main__': unittest.main()

@@ -222,7 +222,7 @@ def daily_fx(cur1: str,cur2: str,live=False) -> tuple[pd.DataFrame,str]:
 @st.cache_data(ttl=21600,show_spinner=False)
 def fred_pair(c1: str,c2: str,live=False) -> tuple[pd.DataFrame,pd.DataFrame,list[str]]:
     """A separate, internally consistent source basis; never splice FRED CPI into IMF."""
-    if {c1,c2}!={'G163','USA'}: raise ValueError('The FRED homework view is for EUR/USD only.')
+    if {c1,c2}!={'G163','USA'}: raise ValueError('The FRED source option is available for EUR/USD only.')
     cp,n1=extended_csv('fred_cpi.csv.gz',FRED_CPI_URL,live)
     fx,n2=extended_csv('fred_eurusd.csv.gz',FRED_FX_URL,live)
     cp=cp.set_index(pd.to_datetime(cp.observation_date))
@@ -232,7 +232,7 @@ def fred_pair(c1: str,c2: str,live=False) -> tuple[pd.DataFrame,pd.DataFrame,lis
     monthly=pd.DataFrame(index=pd.date_range('1996-01-01',max(cp.index.max(),eur.index.max()),freq='MS'))
     monthly['cpi1']=pd.to_numeric(cp['CP0000EZ19M086NEST' if c1=='G163' else 'CPIAUCNS'],errors='coerce')
     monthly['cpi2']=pd.to_numeric(cp['CPIAUCNS' if c2=='USA' else 'CP0000EZ19M086NEST'],errors='coerce')
-    # Aggregate the homework's daily USD/EUR series first; invert that monthly quote for the reverse pair.
+    # Average daily USD/EUR first; invert that monthly quote for the reverse pair.
     avg=eur.resample('MS').mean()
     monthly['fx1_per_usd']=1/avg if c1=='G163' else 1.0
     monthly['fx2_per_usd']=1.0 if c2=='USA' else 1/avg
@@ -327,13 +327,13 @@ def benchmark(frame: pd.DataFrame,c1: str,c2: str,growth: dict,method='Median',c
     if course:
         when=pd.Timestamp('1999-01-01')
         if {c1,c2}!={'USA','G163'}:
-            return dict(available=False,reason='The January 1999 course assumption applies only to EUR/USD.')
+            return dict(available=False,reason='The January 1999 launch reference applies only to EUR/USD.')
         if when not in frame.index or pd.isna(frame.loc[when,'rer']):
             return dict(available=False,reason='The January 1999 joint CPI/FX observation is unavailable.')
         value=float(frame.loc[when,'rer'])
         return dict(available=True,value=value,start='1999-01-01',end='1999-01-01',
-                    label='January 1999 · course assumption',method='Single month',low=value,high=value,
-                    reason='Assumes the euro was fairly priced at launch, as in the first homework. This is an imposed reference, not an independently estimated equilibrium.',course=True)
+                    label='January 1999 · launch reference',method='Single month',low=value,high=value,
+                    reason='Assumes the euro was fairly priced at launch. This is a user-imposed reference, not an independently estimated equilibrium.',course=True)
     earliest=max(pd.Timestamp(REGIME_START.get(c1,'1976-01')),pd.Timestamp(REGIME_START.get(c2,'1976-01')),frame.index.min())
     # Extend beyond the paper's estimation sample. Use only complete years at least
     # two years behind the retrieval year, and never a period after the displayed endpoint.
@@ -420,6 +420,22 @@ def custom_benchmark(frame,start,end,method='Median',as_of=None,daily=False) -> 
                 label=label+' · custom reference',method=method,low=float(values.quantile(.25)),
                 high=float(values.quantile(.75)),custom=True,months=len(months),
                 reason='Your selected period is a valuation assumption, not an automatically screened equilibrium estimate. Insights are conditional on this reference being economically appropriate.')
+
+
+def compare_sources(imf,fred,start,end,method,as_of):
+    """Hold month, quote, reference dates and statistic fixed across source bundles."""
+    common=imf.dropna(subset=['rer']).index.intersection(fred.dropna(subset=['rer']).index)
+    common=common[common<=pd.Timestamp(as_of)]
+    if common.empty: return None,pd.DataFrame()
+    when=common.max()
+    rows=[]
+    for name,frame in [('IMF',imf),('FRED',fred)]:
+        anchor=custom_benchmark(frame,start,end,method,as_of=when)
+        row=frame.loc[when]
+        rows.append(dict(Source=name,Observed=row.nominal,
+                         Implied=anchor['value']*row.cpi2/row.cpi1 if anchor['available'] else np.nan,
+                         Gap=100*(row.rer/anchor['value']-1) if anchor['available'] else np.nan))
+    return when,pd.DataFrame(rows)
 
 
 def chart(frame: pd.DataFrame,mode: str,quote: str,mean: float,b=None,band=True,raw=False) -> go.Figure:
@@ -513,6 +529,8 @@ def date_controls(low,high,frequency,key,cur1,cur2,full=False):
     for side,when in [('start',initial),('end',high)]:
         for part,value in [('year',when.year),('month',when.month),('day',when.day)]:
             st.session_state.setdefault(f'{side}_{part}_{key}',value)
+        year_key=f'{side}_year_{key}'
+        st.session_state[year_key]=min(high.year,max(low.year,st.session_state[year_key]))
     values=[]
     for col,side,title in [(controls[0],'start','From'),(controls[1],'end','Through')]:
         parts=col.columns(3 if frequency=='Daily' else 2 if frequency=='Monthly' else 1,gap='small')
@@ -600,30 +618,30 @@ def main():
         st.info('Choose two different countries to compare their currencies.'); return
     cur1,cur2=currency(c1),currency(c2)
     quote=f'{cur2} per {cur1}'
-    homework=False
+    use_fred=False
     if {c1,c2}=={'G163','USA'}:
-        basis=st.selectbox('EUR / USD data basis',['IMF · app assignment','FRED · previous homework'],key='basis',
-            help='FRED uses CPIAUCNS, EA19 HICP CP0000EZ19M086NEST and DEXUSEU, exactly as in the first homework. IMF remains the second assignment’s source.')
-        homework=basis.startswith('FRED')
-        st.caption('Euro trading starts in January 1999. IMF euro HICP in this snapshot starts December 1999; choose FRED to reproduce the January 1999 homework anchor. Daily values differ from monthly averages.')
+        basis=st.selectbox('EUR / USD data source',['IMF','FRED'],key='basis',
+            help='IMF: monthly CPI/HICP and period-average exchange rates. FRED: BLS US CPI, Eurostat 19-country euro-area HICP and Federal Reserve daily FX averaged by month. Each option uses a consistent set of series.')
+        use_fred=basis.startswith('FRED')
+        st.caption('Source choice affects series coverage, release timing and measurement. Benchmark choice determines the valuation reference. See “How sources and benchmarks affect the result” below.')
     with st.sidebar:
         st.subheader('Data & methodology')
         live=st.toggle('Refresh from live sources',value=False,key='live',help='Off uses the dated, verified public-source snapshot bundled with this app. On attempts live downloads and falls back explicitly if they fail.')
-        raw_scale=st.selectbox('RER scale',['Index · selected mean = 100','Raw RER · original CPI units'],index=1 if homework else 0,key='rer_scale_'+str(homework)).startswith('Raw')
-        st.markdown('**Monthly (default):** IMF CPI and period-average FX from 1976 where reported; optional FRED EUR/USD homework view. **Annual:** averages of monthly calculations. **Daily:** BIS reference FX with ECB fallback, and CPI lagged two months; optional FRED EUR/USD. Daily coverage varies and RER is a proxy.')
+        raw_scale=st.selectbox('RER scale',['Index · selected mean = 100','Raw RER · original CPI units'],index=0,key='rer_scale').startswith('Raw')
+        st.markdown('**Monthly (default):** IMF CPI and period-average FX from 1976 where reported; optional FRED sources for EUR/USD. **Annual:** averages of monthly calculations. **Daily:** BIS reference FX with ECB fallback, and CPI lagged two months; optional FRED EUR/USD. Daily coverage varies and RER is a proxy.')
         st.latex(r'S_t=\frac{FX_{2/USD,t}}{FX_{1/USD,t}},\quad q_t=S_t\frac{CPI_{1,t}}{CPI_{2,t}},\quad I_t=100\frac{q_t}{\overline q_{selected}}')
         st.caption('Country 1 appreciation raises S. An index above 100 means above the selected-sample average, not necessarily overvalued. CPI index levels are not comparable absolute price levels; only consistently constructed relative changes and benchmark ratios are meaningful.')
         st.markdown(f'[IMF data API](https://data.imf.org/en/Resource-Pages/IMF-API) · [ECB reference rates](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) · [Eichenbaum, Johannsen & Rebelo (2019)]({PAPER})')
     try:
         with st.spinner('Aligning CPI and exchange-rate observations…'):
-            if homework: monthly,homework_fx,notes=fred_pair(c1,c2,live)
+            if use_fred: monthly,fred_fx,notes=fred_pair(c1,c2,live)
             else: monthly,notes=monthly_pair(c1,c2,live)
             base=monthly
-            if homework and frequency!='Daily':
-                # The first homework ends at the latest month with both CPI series.
+            if use_fred and frequency!='Daily':
+                # Monthly FRED coverage ends at the latest month with both CPI series.
                 base=monthly.loc[:monthly.dropna(subset=['rer']).index.max()]
             if frequency=='Daily':
-                if homework: fx,note=homework_fx,'Daily FRED DEXUSEU; same source basis as homework monthly averages.'
+                if use_fred: fx,note=fred_fx,'Daily FRED DEXUSEU; monthly mode averages this series.'
                 else: fx,note=daily_fx(cur1,cur2,live)
                 if c1 in EURO_START: fx=fx.loc[f'{EURO_START[c1]}-01-01':]
                 if c2 in EURO_START: fx=fx.loc[f'{EURO_START[c2]}-01-01':]
@@ -634,8 +652,8 @@ def main():
     if usable.empty:
         st.warning('No overlapping observations for this pair and chart mode. Try Nominal if CPI is missing, or choose another pair.');return
     low,high=usable.index.min(),usable.index.max()
-    key=f'{c1}_{c2}_{frequency}_{homework}_{low:%Y%m}_{high:%Y%m}'
-    start,end=date_controls(low,high,frequency,key,cur1,cur2,full=homework)
+    key=f'{c1}_{c2}_{frequency}'
+    start,end=date_controls(low,high,frequency,key,cur1,cur2)
     if start>end:
         st.warning('The start date must be on or before the end date.');return
     sample,mean=normalize(base.loc[start:end])
@@ -653,9 +671,9 @@ def main():
     metrics[3].metric('Matched observations',f'{len(real):,} / {len(sample):,}')
     datefmt='%d %b %Y' if frequency=='Daily' else '%b %Y'
     st.caption(f'Latest FX: {nominal.index[-1].strftime(datefmt)}' + (f' · Latest RER inputs: {real.index[-1].strftime(datefmt)}' if not real.empty else '') + ' · '+('Monthly observations' if frequency=='Annual' else frequency+' observations'))
-    st.caption(('Live source refresh enabled' if live else snapshot_note('fred_cpi.csv.gz' if homework else 'cpi.csv.gz'))+' · '+('Raw RER in source CPI units' if raw_scale else 'RER index: selected-sample mean = 100')+' · Data and scale settings in the sidebar')
+    st.caption(('Live source refresh enabled' if live else snapshot_note('fred_cpi.csv.gz' if use_fred else 'cpi.csv.gz'))+' · '+('Raw RER in source CPI units' if raw_scale else 'RER index: selected-sample mean = 100')+' · Data and scale settings in the sidebar')
     if frequency=='Daily':
-        st.caption('Daily RER proxy = published daily FX × CPI from two months earlier. Use Monthly for the assignment calculation; revised CPI and unverified release dates prevent a point-in-time backtest.')
+        st.caption('Daily RER proxy = published daily FX × CPI from two months earlier. Monthly combines FX and CPI for the same month; revised CPI and unverified release dates prevent a point-in-time backtest.')
     if cur1==cur2:
         st.info('Same currency, different economies: the nominal rate is 1. RER movements measure relative inflation, not an exchange-rate trading opportunity.')
     st.subheader('01  /  Exchange-rate evolution')
@@ -677,9 +695,9 @@ def main():
     st.subheader('02  /  A reference for valuation')
     settings=st.container(key='reference_controls').columns([2.1,1,2.4],gap='medium')
     methods=['Automatic · screened history','Custom period']
-    reference=settings[0].selectbox('Reference approach',methods,index=0,key='reference_v2_'+c1+c2+'_'+str(homework))
+    reference=settings[0].selectbox('Reference approach',methods,index=0,key='reference_v3_'+c1+c2)
     method=settings[1].selectbox('Reference statistic',['Median','Mean'],key='statistic')
-    profile=settings[2].selectbox('Your perspective',['Research / student','Trader / investor','Company · payments / debt in C1','Company · receipts / assets in C1'],key='profile')
+    profile=settings[2].selectbox('Your perspective',['General analysis','Trader / investor','Company · payments / debt in C1','Company · receipts / assets in C1'],key='profile')
     horizon='2+ years'
     if profile=='Trader / investor': horizon=st.segmented_control('Decision horizon',['Under 2 years','2+ years'],default='2+ years',key='horizon') or '2+ years'
     growth,gnote=growth_data(live)
@@ -689,7 +707,7 @@ def main():
         bounds=(history.index.min(),history.index.max())
         initial_start=pd.Timestamp(b['start']) if b.get('available') else bounds[0]
         initial_end=pd.Timestamp(b['end']) if b.get('available') else initial_start
-        ref_key=f'{c1}_{c2}_{homework}'
+        ref_key=f'{c1}_{c2}'
         def set_reference_month(when):
             for side in ['start','end']:
                 st.session_state[f'ref_{side}_year_{ref_key}']=when.year
@@ -707,8 +725,8 @@ def main():
             st.button('Use January 1999',on_click=set_reference_month,args=(pd.Timestamp('1999-01-01'),),key='jan1999_'+ref_key)
         st.caption('Both endpoints are included. Choose the same month twice for a single-month reference. Custom periods are your assumption of fair value; they do not have to pass the automatic stability screen.')
         b=custom_benchmark(monthly,*endpoints,method=method,as_of=sample.index.max(),daily=frequency=='Daily')
-        if {c1,c2}=={'G163','USA'} and not b.get('available') and not homework and endpoints[0]<pd.Timestamp('1999-12-01'):
-            b['reason']+=' For January 1999, select “FRED · previous homework” above.'
+        if {c1,c2}=={'G163','USA'} and not b.get('available') and not use_fred and endpoints[0]<pd.Timestamp('1999-12-01'):
+            b['reason']+=' For January 1999, select FRED above; the bundled IMF euro HICP starts in December 1999.'
     with st.expander('Why this benchmark? / Sensitivity',expanded=False):
         st.write(b.get('reason',''))
         tolerance=st.slider('Neutral range around reference (%)',min_value=2,max_value=15,value=5,step=1,help='An explicit judgment threshold, not a statistical confidence interval. Classification also incorporates the reference period’s interquartile range.')
@@ -752,21 +770,29 @@ def main():
     if b.get('available'):
         st.caption('Purple shading is historical dispersion, not a confidence interval. Both charts use the same RER scale. The fixed benchmark need not equal 100 on the index scale. Under fixed exchange rates, adjustment can occur through inflation.')
     if {c1,c2}=={'G163','USA'}:
-        with st.expander('Compare with the first EUR/USD homework'):
-            st.markdown('To reproduce it, choose **Monthly**, **FRED · previous homework**, **Custom period**, then **Use January 1999**. Automatic is the default for every data basis. FRED uses the original raw RER scale; change it in the sidebar if desired. The default IMF view uses a selected-sample index of 100. CPI base years change raw RER levels; source definitions, FX fixing times, date range and daily CPI lags can also change the series. A rebased index of 100 is not a fair-value benchmark.')
-            fm,_,_=fred_pair('G163','USA',False)
-            fref=benchmark(fm,'G163','USA',{},course=True)
-            if fref.get('available'):
-                last=fm.dropna(subset=['rer']).iloc[-1]
-                st.write(f"FRED monthly check for {last.name:%B %Y}: raw RER **{number(last.rer,2)}**, January 1999 anchor **{number(fref['value'],2)}**, nominal **{number(last.nominal,2)} USD/EUR**, PPP-implied **{number(fref['value']*last.cpi2/last.cpi1,2)} USD/EUR**; gap **{number(100*(last.rer/fref['value']-1),sign=True)}%**. This check always evaluates EUR against USD. Downloads retain full calculation precision.")
-            st.markdown('[US CPI](https://fred.stlouisfed.org/series/CPIAUCNS) · [Euro-area 19-country HICP](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST) · [USD/EUR](https://fred.stlouisfed.org/series/DEXUSEU)')
-            st.caption('The October 26 snapshot reproduces 332 valid months in the original workbook. October 2025 US CPI is missing from the current FRED series; the workbook contains 324.8 for that month. This app keeps the missing RER blank instead of carrying a price observation forward.')
+        with st.expander('How sources and benchmarks affect the result'):
+            st.markdown('**Benchmark: what counts as fair value?** January 1999 assumes the euro was fairly priced at launch. Automatic uses the median or mean of a screened five-year period. These are different economic assumptions and can produce different valuation signals even with identical data. A historical reference is not proof of equilibrium.')
+            st.markdown('**Source: what is measured?** IMF supplies monthly CPI/HICP and period-average FX. FRED distributes BLS US CPI, Eurostat HICP for a 19-country euro-area aggregate, and Federal Reserve USD/EUR rates observed at noon in New York, which this app averages by month. Differences in price-index definitions or geographic coverage, FX observation times, revisions and missing months can change the measured trend and valuation gap. Neither source is automatically the correct fair-value estimate.')
+            st.markdown('**Scale: how is it displayed?** Raw RER levels depend on the CPI index bases. Rescaling a consistent series does not change its percentage gap from its benchmark: both are rescaled together. An index above 100 means above the selected-period average, not necessarily overvalued. Switching sources preserves your scale and date choices where coverage permits; compare the same month and reference period.')
+            st.caption('Euro trading starts in January 1999. In the bundled snapshot, IMF euro HICP starts December 1999, while FRED supports a January 1999 reference. CPI is monthly: Daily is a lagged-CPI proxy and should not be compared directly with a same-month monthly calculation. October 2025 US CPI is missing in the current FRED series and is left blank.')
+            if b.get('available'):
+                im,im_notes=monthly_pair(c1,c2,live)
+                fm,_,fm_notes=fred_pair(c1,c2,live)
+                common_month,comparison=compare_sources(im,fm,b['start'],b['end'],method,sample.index.max())
+                if common_month is not None:
+                    st.markdown(f'**Same-month source comparison · {common_month:%B %Y}**')
+                    st.caption(f"Both rows evaluate {cur1} against {cur2}, using monthly data, the same {b['start'][:7]} to {b['end'][:7]} reference period and {method.lower()}. No independent automatic re-selection is made for the other source.")
+                    st.dataframe(comparison.rename(columns={'Observed':f'Observed · {quote}','Implied':f'Reference-implied · {quote}','Gap':'Gap (%)'}).style.format({f'Observed · {quote}':lambda v:number(v,nominal_decimals),f'Reference-implied · {quote}':lambda v:number(v,nominal_decimals),'Gap (%)':lambda v:number(v,sign=True)},na_rep='Unavailable'),hide_index=True,width='stretch')
+                    if comparison.Gap.isna().any(): st.caption('Unavailable means that source cannot supply all the selected reference months. References are never copied between differently based CPI series.')
+                    st.caption('Comparison source status: '+' | '.join(im_notes+fm_notes))
+            st.markdown('To explore a launch-date scenario: select **FRED → Custom period → Use January 1999**. Use **All** to view the full available history.')
+            st.markdown('[IMF data](https://data.imf.org/en/Resource-Pages/IMF-API) · [BLS US CPI via FRED](https://fred.stlouisfed.org/series/CPIAUCNS) · [Eurostat EA19 HICP via FRED](https://fred.stlouisfed.org/series/CP0000EZ19M086NEST) · [Federal Reserve USD/EUR via FRED](https://fred.stlouisfed.org/series/DEXUSEU)')
     st.markdown('<div class="rule"></div>',unsafe_allow_html=True)
     export=enriched.reset_index()
     export.insert(1,'country1',c1);export.insert(2,'country2',c2)
     export['quote_direction']=quote
     export['frequency']='D_PROXY' if frequency=='Daily' else 'M'
-    export['data_basis']='FRED homework' if homework else 'IMF CPI / IMF monthly FX or BIS/ECB daily FX'
+    export['data_basis']='FRED: BLS CPI, Eurostat EA19 HICP, Federal Reserve FX' if use_fred else 'IMF CPI / IMF monthly FX or BIS/ECB daily FX'
     export['chart_rer_scale']='Raw RER' if raw_scale else 'Selected-sample index = 100'
     export['benchmark_start']=b.get('start','');export['benchmark_end']=b.get('end','')
     export['benchmark_method']=b.get('method','Unavailable')
