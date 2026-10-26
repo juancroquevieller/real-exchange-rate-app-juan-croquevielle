@@ -1,0 +1,32 @@
+{
+  "cpi.csv.gz": {
+    "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/CPI/~/*.CPI._T.IX.M",
+    "retrieved_at": "2026-10-26T02:48:44.676572+00:00",
+    "bytes": 988042
+  },
+  "fx.csv.gz": {
+    "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/ER/~/*.XDC_USD.PA_RT.M",
+    "retrieved_at": "2026-10-26T02:48:44.287595+00:00",
+    "bytes": 990296
+  },
+  "countries.json": {
+    "url": "https://www.imf.org/external/datamapper/api/v1/countries",
+    "retrieved_at": "2026-10-26T02:48:42.894631+00:00",
+    "bytes": 7095
+  },
+  "growth.json": {
+    "url": "https://www.imf.org/external/datamapper/api/v1/NGDP_RPCH",
+    "retrieved_at": "2026-10-26T02:48:43.219248+00:00",
+    "bytes": 121784
+  },
+  "ecb.csv.gz": {
+    "url": "https://data-api.ecb.europa.eu/service/data/EXR/D..EUR.SP00.A?startPeriod=1999-01-01&format=csvdata",
+    "retrieved_at": "2026-10-26T02:48:59.272269+00:00",
+    "bytes": 1544411
+  },
+  "euro_cpi.csv.gz": {
+    "url": "https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/CPI/~/G163.HICP._T.IX.M",
+    "retrieved_at": "2026-10-26T02:48:42.889634+00:00",
+    "bytes": 2153
+  }
+}
