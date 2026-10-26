@@ -438,7 +438,7 @@ def compare_sources(imf,fred,start,end,method,as_of):
     return when,pd.DataFrame(rows)
 
 
-def chart(frame: pd.DataFrame,mode: str,quote: str,mean: float,b=None,band=True,raw=False) -> go.Figure:
+def chart(frame: pd.DataFrame,mode: str,quote: str,mean: float,b=None,band=True,raw=False,frequency='Monthly') -> go.Figure:
     fig=make_subplots(specs=[[{'secondary_y':True}]])
     factor=1 if raw else 100/mean if mean>0 else np.nan
     real_name='Raw RER' if raw else 'Real index'
@@ -464,8 +464,17 @@ def chart(frame: pd.DataFrame,mode: str,quote: str,mean: float,b=None,band=True,
         font=dict(family='Arial, sans-serif',color='#526370',size=12),hovermode='x unified',
         legend=dict(orientation='h',y=-.18,x=0,font=dict(size=11)),
         hoverlabel=dict(bgcolor='white',font_size=12),dragmode='zoom',separators='.,')
-    days=(frame.index.max()-frame.index.min()).days
-    fig.update_xaxes(showgrid=False,showline=True,linecolor='#e8edef',tickformat='%d %b' if days<120 else '%b %Y' if days<730 else '%Y',nticks=6)
+    # Let Plotly recalculate tick spacing from the actual chart width and zoom.
+    # Two-line labels keep months readable without crowding narrow screens.
+    date_stops=[
+        dict(dtickrange=[None,2419200000],value='%d %b\n%Y'),
+        dict(dtickrange=[2419200000,'M11'],value='%b\n%Y'),
+        dict(dtickrange=['M11',None],value='%Y'),
+    ]
+    hover_date='%d %B %Y' if frequency=='Daily' else '%Y (annual average)' if frequency=='Annual' else '%B %Y'
+    fig.update_xaxes(showgrid=False,showline=True,linecolor='#e8edef',type='date',
+        tickmode='auto',nticks=0,tickformatstops=date_stops,
+        hoverformat=hover_date,tickangle=0,automargin=True)
     fig.update_yaxes(title_text=real_name if mode!='Nominal' else quote,gridcolor='#edf1f2',zeroline=False,tickformat=real_format if mode!='Nominal' else nominal_format,secondary_y=False)
     fig.update_yaxes(title_text=quote if mode=='Both' else None,showgrid=False,visible=mode=='Both',zeroline=False,tickformat=nominal_format,secondary_y=True)
     return fig
@@ -677,7 +686,7 @@ def main():
     if cur1==cur2:
         st.info('Same currency, different economies: the nominal rate is 1. RER movements measure relative inflation, not an exchange-rate trading opportunity.')
     st.subheader('01  /  Exchange-rate evolution')
-    st.plotly_chart(chart(display,mode,quote,mean,raw=raw_scale),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='evolution')
+    st.plotly_chart(chart(display,mode,quote,mean,raw=raw_scale,frequency=frequency),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='evolution')
     if latest_real is not None:
         change=100*(real.rer.iloc[-1]/real.rer.iloc[0]-1)
         relative=100*((real.cpi1.iloc[-1]/real.cpi1.iloc[0])/(real.cpi2.iloc[-1]/real.cpi2.iloc[0])-1)
@@ -752,7 +761,7 @@ def main():
     with left:
         if b.get('available'): st.caption(b['label']+' · fixed RER anchor; nominal PPP path adjusts with relative CPI')
         else: st.caption('Evolution shown without a benchmark · evidence is insufficient')
-        st.plotly_chart(chart(display2,mode,quote,mean,b,show_band,raw=raw_scale),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='reference_chart')
+        st.plotly_chart(chart(display2,mode,quote,mean,b,show_band,raw=raw_scale,frequency=frequency),width='stretch',config={'displaylogo':False,'scrollZoom':False},key='reference_chart')
     with right:
         v=valuation(enriched,b,tolerance)
         if cur1==cur2: v=dict(status='No bilateral FX signal',detail='Shared currency: relative prices explain RER movements.',actionable=False)
