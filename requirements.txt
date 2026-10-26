@@ -1,0 +1,6 @@
+streamlit>=1.50,<2
+pandas>=2.2,<3
+numpy>=2,<3
+plotly>=6,<7
+requests>=2.32,<3
+certifi>=2025.1.31
